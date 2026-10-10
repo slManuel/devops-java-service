@@ -68,7 +68,8 @@ spec:
     stage('Checkout') {
       steps {
         script {
-          checkout scm
+          def source = checkout scm
+          env.GIT_COMMIT = source.GIT_COMMIT
           env.IMAGE = "${env.REGISTRY_IMAGE}:${env.GIT_COMMIT}-${env.BUILD_NUMBER}"
         }
       }
@@ -120,7 +121,7 @@ sh scripts/test.sh
         }
       }
     }
-    always {
+    cleanup {
       sh 'set +x; find /run/pipeline -type f -exec truncate -s 0 {} +'
       deleteDir()
     }

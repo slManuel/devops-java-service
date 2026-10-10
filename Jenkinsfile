@@ -69,7 +69,8 @@ spec:
       steps {
         script {
           if (params.AGENT_IMAGE.contains('REPLACE_')) { error('Configure the published agent image first') }
-          checkout scm
+          def source = checkout scm
+          env.GIT_COMMIT = source.GIT_COMMIT
           env.IMAGE = "${env.REGISTRY_IMAGE}:${env.GIT_COMMIT}"
         }
       }
@@ -125,7 +126,7 @@ jq -cn --arg auth "$auth" '{auths:{"ghcr.io":{auth:$auth}}}' > /run/pipeline/doc
         }
       }
     }
-    always {
+    cleanup {
       sh 'set +x; find /run/pipeline -type f -exec truncate -s 0 {} +'
       deleteDir()
     }
