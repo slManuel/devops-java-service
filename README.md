@@ -24,7 +24,7 @@ Aplicación HTTP con dos réplicas, probes, configuración de Vault y manifiesto
 | `qa` | qa | Recupera un build develop exitoso → verifica árbol Git/digest → secreto QA → deploy |
 | `main` | production | Recupera un build QA exitoso → verifica árbol Git/digest → secreto production → deploy |
 
-El usuario decide cada avance: PR feature→develop, después develop→qa y qa→main. GitHub Actions valida PRs/push; no despliega. Jenkins ejecuta solo el destino de su rama, sin encadenar QA/producción. Las ramas locales develop/qa existen; cambios sin commit/publicación.
+El usuario decide cada avance: PR feature→develop, después develop→qa y qa→main. GitHub Actions valida PRs/push; no despliega. Jenkins ejecuta solo el destino de su rama, sin encadenar QA/producción. Las ramas develop, qa y main están publicadas con el flujo nuevo. Falta configurar protecciones y Jenkins Multibranch.
 
 Para QA/main indicar `SOURCE_BUILD_NUMBER` del build anterior validado. El manifiesto registra digest, commit/árbol original y job/build/entorno validado. Se exige SUCCESS y coincidencia exacta del árbol Git del merge: los commits pueden diferir, el contenido no. Un árbol distinto, build fallido, otro job o tag mutable se rechaza. Si el build no se selecciona, la promoción se detiene; no adivina el artefacto. Conservar builds/artefactos hasta completar la promoción.
 
