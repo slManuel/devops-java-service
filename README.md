@@ -1,37 +1,41 @@
-# Microservicio Java 21 y pipeline Jenkins
+# Microservicio Java 21
 
-Servicio HTTP Java 21 sin dependencias externas, dos réplicas, NLB y manifiestos propios. No usa Helm. El Jenkinsfile obtiene `DEMO_MESSAGE` de Vault **antes** de compilar/probar y construir la imagen; publica en GHCR y despliega por digest. Nunca pasa el valor como Docker ARG ni lo incorpora a la imagen.
+Aplicación HTTP con dos réplicas, probes, configuración de Vault y manifiestos propios, sin Helm. Jenkins construye/publica una imagen en development y promueve **el mismo digest** a QA y producción.
 
 | Endpoint | Resultado |
 |---|---|
-| `/health/live`, `/health/ready` | HTTP200 cuando el proceso inició con su configuración |
-| `/api/secret` | Valor inyectado por env; por defecto redactado. `EXPOSE_DEMO_VALUE=true` sólo para un dato de demostración y CIDR evaluador restringido |
-| `/api/config` | Propiedad leída del archivo local `application.properties` (montaje CSI) y flag inyectado por VSO |
+| `/health/live`, `/health/ready` | Estado del proceso |
+| `/api/secret` | Variable del pipeline; redactada por defecto |
+| `/api/config` | Propiedad del archivo CSI y flag VSO |
 
-`DEMO_MESSAGE` y `demo.property` son obligatorios al arrancar. El contenedor corre como 10001, sin capacidades y filesystem raíz de sólo lectura. Configuración, tmpfs, probes, requests/limits, SA, RBAC y namespace están en `k8s/`.
+## Carpetas
 
-## Comprobaciones locales
+- `src/`, `Dockerfile`: aplicación, pruebas Java 21 e imagen sin secretos incorporados.
+- `k8s/`: manifiestos comunes; `environments/development`, `qa`, `production`: overlays Kustomize propios.
+- `Jenkinsfile`, `scripts/`: build, lectura Vault, promoción verificada y rollback por entorno.
+- `schemas/`, `.github/workflows/`: validación de Kubernetes/CRD, scripts y pruebas.
+- `local-demo/`: perfil histórico de dos clústeres kind, actualmente detenido.
 
-```sh
-docker run --rm --user "$(id -u):$(id -g)" -e DEMO_MESSAGE=local-validation -v "$PWD:/src" -w /src eclipse-temurin:21-jdk sh scripts/test.sh
-docker build -t devops-java-service:validation .
-sh scripts/validate-manifests.sh
-```
+## Ramas y promoción
 
-SmokeTest arranca un proceso real y comprueba HTTP readiness, método rechazado, propiedad local, JSON y redacción. Las imágenes base están fijadas por digest en Dockerfile. GitHub CI ejecuta pruebas, build, sintaxis shell y Kubeconform contra Kubernetes 1.36 y esquemas de CRD **VSO1.6.0/CSI1.6.1** incluidos en `schemas/`; son derivados de manifests upstream, no un operador propio. El Jenkinsfile también se compiló con Groovy 2.4.21 del Jenkins LTS elegido; la validación declarativa y ejecución integrada quedan pendientes de Jenkins activo.
+| Rama | Destino | Acción Jenkins |
+|---|---|---|
+| `develop` | development | Vault antes de test/build → una construcción/push → digest → deploy → `release.json` |
+| `qa` | qa | Recupera un build develop exitoso → verifica árbol Git/digest → secreto QA → deploy |
+| `main` | production | Recupera un build QA exitoso → verifica árbol Git/digest → secreto production → deploy |
 
-## Preparación y ejecución
+El usuario decide cada avance: PR feature→develop, después develop→qa y qa→main. GitHub Actions valida PRs/push; no despliega. Jenkins ejecuta solo el destino de su rama, sin encadenar QA/producción. Las ramas locales develop/qa existen; cambios sin commit/publicación.
 
-Seguir [operación del repo de instalación](https://github.com/slManuel/despliegue-jenkins-vault/blob/main/docs/OPERACION.md). No aplicar archivos con `REPLACE_` ni el CIDR documental. Vault se alcanza desde micro por **NLB interno TCP**, con CA y verificación de SAN configurada; el DNS ClusterIP de tools no cruza entre clústeres. Instalar VSO, CSI driver y provider desde aquel repo con Kustomize. Los tres usan versiones fijas; prueba funcional con EKS/JWT pendiente por bloqueo AWS.
+Para QA/main indicar `SOURCE_BUILD_NUMBER` del build anterior validado. El manifiesto registra digest, commit/árbol original y job/build/entorno validado. Se exige SUCCESS y coincidencia exacta del árbol Git del merge: los commits pueden diferir, el contenido no. Un árbol distinto, build fallido, otro job o tag mutable se rechaza. Si el build no se selecciona, la promoción se detiene; no adivina el artefacto. Conservar builds/artefactos hasta completar la promoción.
 
-Aplicar namespace/identity/CA/CR de Vault y configurar credenciales Jenkins `registry-credentials`, `kubeconfig-development`, lectura del repo privado y parámetro `AGENT_IMAGE` publicado. La credencial kubeconfig usa context `development`, endpoint privado y SA temporal con RBAC limitado; renovar antes de expirar. Sustituir `REPLACE_VAULT_INTERNAL_DNS`, permitir CIDR del evaluador en Service, crear `ghcr-pull`. Jenkins sustituye `REPLACE_COMMIT` de Deployment por digest al desplegar, no se aplica la imagen placeholder.
+## Preparación
 
-Pipeline: checkout → JWT proyectado de `jenkins-pipeline` (600s) → login Vault JWT mount deployment → lectura limitada del KV y revocación token → pruebas/build rootless → push imagen inmutable → backup en memoria de Deployment/Secret actual → actualización → rollout y dos réplicas listas. El agente no usa Docker socket ni privileged. BuildKit rootless tiene excepción seccomp Unconfined y no-process-sandbox; sólo código confiable. Secrets de trabajo están en emptyDir Memory y se truncan al finalizar; no se archivan valores. El job debe configurarse para no retener workspace de agentes eliminados.
+Seguir [README de herramientas](../despliegue-jenkins-vault/README.md). Configurar Jenkins Multibranch restringido a develop/qa/main, `AGENT_IMAGE`, `registry-credentials`, `promotion-reader` (usuario/API token solo lectura) y kubeconfig-development/qa/production con contexto exacto y SA limitado del clúster correspondiente. Revisión/protección de ramas y activación de jobs siguen pendientes; no se configuraron remotamente.
 
-Si falla una actualización, `rollback.sh` restaura spec y Secret anteriores. Fallos antes del deploy no intentan rollback; una primera instalación fallida no tiene versión anterior y queda fallida para corregir. El pipeline no crea namespaces, identidades, operadores o Services con su credencial restringida.
+Aplicar cada overlay como administrador tras sustituir DNS interno Vault, imagen y CIDR de evaluación; instalar VSO/CSI y CA/ghcr-pull en cada clúster. Jenkins solo modifica Deployment y pipeline-env. Cada entorno lee `kv/environments/<entorno>/app` y su configuración CSI; no recompila al cambiar secretos. Si falla un rollout, restaura Deployment y Secret anteriores **solo de ese entorno**. Una primera instalación sin revisión previa queda fallida.
 
-## Estado y evidencia
+## Validación y estado
 
-Pruebas Java, construcción Docker, sintaxis shell/Groovy y schemas se verifican localmente y en CI. No hay evidencia todavía de pods, NLB, login JWT, reconciliación VSO, archivo CSI o rollback real: AWS no permite lanzar nodos y falta estación con acceso al API privado. La rúbrica se puede trazar al código, pero no se declara cumplida en ejecución.
+Pruebas: `python3 scripts/check-profile-parity.py`, `python3 scripts/test_deploy_environments.py`, `python3 scripts/test_release_promotion.py`, `sh scripts/test.sh` (Java 21) y `sh scripts/validate-manifests.sh` (kubectl/Docker). GitHub CI declara 5 pasos en un job.
 
-Para la evaluación, guardar salidas **sin secretos** de `kubectl get pods/deployment/service`, condiciones VaultStaticSecret, SecretProviderClassPodStatus, endpoints con datos no sensibles y log del rollback de una revisión de prueba. No publicar kubeconfig, Secret YAML, estados, claves unseal o token root. Opcional de CronJob exportador no implementado.
+La demo histórica acreditó development y rollback; no acredita estas promociones nuevas. El pipeline actualizado requiere validación declarativa e integración con Jenkins real, GHCR, Vault y tres EKS. AWS sigue sin verificación de despliegue; no se reinició la demo. Evidencia histórica: [demo local](../despliegue-jenkins-vault/local-demo/README.md).

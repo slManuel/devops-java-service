@@ -62,6 +62,8 @@ spec:
     skipDefaultCheckout(true)
   }
   environment {
+    LOCAL_DEMO_LEGACY = 'true'
+    TARGET_ENVIRONMENT = 'development'
     REGISTRY_IMAGE = "${env.LOCAL_REGISTRY}/devops-java-service"
   }
   stages {
@@ -114,7 +116,7 @@ sh scripts/test.sh
   post {
     failure {
       script {
-        if (fileExists('/run/pipeline/deploy-started')) {
+        if (fileExists('/run/pipeline/development/deploy-started')) {
           withCredentials([file(credentialsId: 'kubeconfig-development', variable: 'KUBECONFIG')]) {
             sh 'sh scripts/rollback.sh'
           }

@@ -32,7 +32,7 @@ spec:
   vaultAuthRef: microservicio
   type: kv-v2
   mount: kv
-  path: demo/app
+  path: environments/development/app
   refreshAfter: 30s
   destination:
     create: true
@@ -57,5 +57,5 @@ spec:
     audience: vault
     objects: |
       - objectName: application.properties
-        secretPath: kv/data/demo/config
+        secretPath: kv/data/environments/development/config
         secretKey: property

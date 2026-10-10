@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: qa
+resources:
+  - ../../k8s
+patches:
+  - target:
+      kind: Namespace
+    patch: |-
+      - op: replace
+        path: /metadata/labels/environment
+        value: qa
+  - target:
+      kind: VaultAuth
+      name: microservicio
+    patch: |-
+      - op: replace
+        path: /spec/mount
+        value: qa
+  - target:
+      kind: VaultStaticSecret
+      name: vault-config
+    patch: |-
+      - op: replace
+        path: /spec/path
+        value: environments/qa/app
+  - target:
+      kind: SecretProviderClass
+      name: vault-config
+    patch: |-
+      - op: replace
+        path: /spec/parameters/vaultAuthMountPath
+        value: qa
+      - op: replace
+        path: /spec/parameters/objects
+        value: |
+          - objectName: application.properties
+            secretPath: kv/data/environments/qa/config
+            secretKey: property
