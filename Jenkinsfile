@@ -57,7 +57,6 @@ spec:
     string(name: 'AGENT_IMAGE', defaultValue: 'ghcr.io/slmanuel/jenkins-agent:REPLACE_COMMIT', description: 'Image built from the deployment repo, pinned by commit or digest')
   }
   options {
-    timestamps()
     disableConcurrentBuilds()
     timeout(time: 30, unit: 'MINUTES')
     skipDefaultCheckout(true)
