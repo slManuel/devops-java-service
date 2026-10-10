@@ -1,0 +1,11 @@
+.git
+.github
+build
+k8s
+scripts
+Jenkinsfile
+README.md
+.env*
+*.pem
+*.key
+kubeconfig*

@@ -1,0 +1,61 @@
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultConnection
+metadata:
+  name: vault
+  namespace: development
+spec:
+  address: https://REPLACE_VAULT_INTERNAL_DNS:8200
+  skipTLSVerify: false
+  tlsServerName: vault.vault.svc.cluster.local
+  caCertSecretRef: vault-ca
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultAuth
+metadata:
+  name: microservicio
+  namespace: development
+spec:
+  vaultConnectionRef: vault
+  method: jwt
+  mount: development
+  jwt:
+    role: microservicio
+    serviceAccount: microservicio
+    audiences: [vault]
+---
+apiVersion: secrets.hashicorp.com/v1beta1
+kind: VaultStaticSecret
+metadata:
+  name: vault-config
+  namespace: development
+spec:
+  vaultAuthRef: microservicio
+  type: kv-v2
+  mount: kv
+  path: demo/app
+  refreshAfter: 30s
+  destination:
+    create: true
+    name: vault-config
+  rolloutRestartTargets:
+    - kind: Deployment
+      name: devops-java-service
+---
+apiVersion: secrets-store.csi.x-k8s.io/v1
+kind: SecretProviderClass
+metadata:
+  name: vault-config
+  namespace: development
+spec:
+  provider: vault
+  parameters:
+    vaultAddress: https://REPLACE_VAULT_INTERNAL_DNS:8200
+    vaultTLSServerName: vault.vault.svc.cluster.local
+    vaultCACertPath: /etc/vault-ca/ca.crt
+    vaultAuthMountPath: development
+    roleName: microservicio
+    audience: vault
+    objects: |
+      - objectName: application.properties
+        secretPath: kv/data/demo/config
+        secretKey: property
